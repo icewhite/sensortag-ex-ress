@@ -3,11 +3,13 @@ const router = express.Router();
 const SensorTag = require('sensortag');
 const WebSocket = require('ws');
 const iotPlatform = require('../integration/ibm-iot-platform');
+const async = require('async');
 
 const wss = new WebSocket.Server({port: 40510});
 
 let sensorTag = null;
 let threshold = 0.1;
+let sensorCheckInterval = 10; // in seconds
 
 let accelData = {};
 
@@ -38,9 +40,9 @@ function accelChange(x,y,z) {
       }
     }
 
-    accelData.timestamp = new Date().getTime();
-    accelData.dataFormat = "v1"; // In case I want to change data format and only select that type from DB
     accelData.changeDetected = accelData.changeX || accelData.changeY || accelData.changeZ;
+
+    accelData = setDataDefaults(accelData, 'accel');
   }
 
   // Only update current once all calculations have been completed
@@ -63,6 +65,14 @@ function accelChange(x,y,z) {
   }
 }
 
+function setDataDefaults(obj, type) {
+  obj.timestamp = new Date().getTime();
+  obj.dataVersion = "v1";
+  obj.dataType = type;
+
+  return obj;
+}
+
 function keyChange(left, right, reedRelay) {
   console.log(`Key change detected. Left: ${left}, Right: ${right}, ReedRelay: ${reedRelay}`);
 }
@@ -74,37 +84,67 @@ SensorTag.discoverAll(function(tag) {
   console.log(`SensorTag discovered: ${sensorTag.id}`);
 
   sensorTag.connectAndSetUp(function(error) {
-    debugger;
     if(!error) {
-      sensorTag.enableAccelerometer(function () {
-        console.log("accelerometer enabled");
-      });
-
-      sensorTag.notifyAccelerometer(function (error) {
-        if (!error) {
-          console.log(`notifyAccelerometer seems to be enabled`);
+      async.series([
+        function(callback) {
+          console.log("enableAccelerometer");
+          sensorTag.enableAccelerometer(callback);
+        },
+        function(callback) {
+          console.log("notifyAccelerometer");
+          sensorTag.notifyAccelerometer(function (error) {
+            if (!error) {
+              console.log(`notifyAccelerometer seems to be enabled`);
+            }
+            else {
+              console.log(`notifyAccelerometer error: ${error}`);
+            }
+            callback();
+          });
+        },
+        function(callback) {
+          console.log("enableHumidity");
+          sensorTag.enableHumidity(callback);
+        },
+        function(callback) {
+          sensorTag.notifySimpleKey(function(error) {
+            if(!error) {
+              console.log(`notifySimpleKey seems to be enabled`);
+            }
+            else {
+              console.log(`notifySimpleKey error: ${error}`);
+            }
+            callback();
+          });
+        },
+        function(callback) {
+          sensorTag.on('accelerometerChange', accelChange);
+          sensorTag.on('simpleKeyChange', keyChange);
         }
-        else {
-          console.log(`notifyAccelerometer error: ${error}`);
-        }
-      });
-
-      sensorTag.notifySimpleKey(function(error) {
-        if(!error) {
-          console.log(`notifySimpleKey seems to be enabled`);
-        }
-        else {
-          console.log(`notifySimpleKey error: ${error}`);
-        }
-      });
-
-      sensorTag.on('accelerometerChange', accelChange);
-      sensorTag.on('simpleKeyChange', keyChange);
+      ]);
     }
     else {
       console.error(`Error connecting to sensortag: ${error}`);
     }
   });
+
+  sensorTag.on('disconnect', function() {
+    console.log("disconnected!");
+  });
+
+  setInterval(function() {
+    sensorTag.readHumidity(function(error, temperature, humidity) {
+      if(!error) {
+        console.log('\ttemperature = %d °C', temperature.toFixed(1));
+        console.log('\thumidity = %d %', humidity.toFixed(1));
+
+        iotPlatform.postEvent(setDataDefaults({temperature, humidity}, 'tempAndHum'));
+      }
+      else {
+        console.error('Error reading humidity');
+      }
+    });
+  }, sensorCheckInterval*1000);
 });
 
 /* GET home page. */
