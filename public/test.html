@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>IOT Test</title>
+  <script src="https://d3js.org/d3.v5.js"></script>
+
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
+
+  <style type="text/css">
+
+  </style>
+</head>
+<body>
+
+<main role="main">
+
+    <div class="container mt-2">
+      <h1>Iain's SensorTag</h1>
+
+      <div class="row">
+        <div class="col-sm">
+          <h3>X</h3>
+          <span id="x"></span><br>
+          Min <span id="x-min"></span><br>
+          Max <span id="x-max"></span><br>
+          Max min diff <span id="x-diff"></span>
+        </div>
+        <div class="col-sm">
+          <h3>Y</h3>
+          <span id="y"></span><br>
+          Min <span id="y-min"></span><br>
+          Max <span id="y-max"></span><br>
+          Max min diff <span id="y-diff"></span>
+        </div>
+        <div class="col-sm">
+          <h3>Z</h3>
+          <span id="z"></span><br>
+          Min <span id="z-min"></span><br>
+          Max <span id="z-max"></span><br>
+          Max min diff <span id="z-diff"></span>
+        </div>
+      </div>
+
+      Change detected: <span id="change"></span><br>
+
+      <input type="range" min="0.01" max="1" step="0.01" id="threshold"><span id="thresholdValue"></span>
+    </div>
+</main>
+
+<script>
+  var ws = new WebSocket('ws://localhost:40510');
+  // event emmited when connected
+  ws.onopen = function () {
+    console.log('websocket is connected ...')
+    // sending a send event to websocket server
+    ws.send(JSON.stringify({status: 'connected'}));
+  }
+  // event emmited when receiving message
+  ws.onmessage = function (ev) {
+
+    var dataObj = JSON.parse(ev.data);
+
+    if(dataObj.hasOwnProperty('type') && dataObj.type == 'accel') {
+      d3.select('span#x').text(dataObj.data.current.x);
+      d3.select('span#y').text(dataObj.data.current.y);
+      d3.select('span#z').text(dataObj.data.current.z);
+
+      d3.select('span#x-min').text(dataObj.data.min.x);
+      d3.select('span#y-min').text(dataObj.data.min.y);
+      d3.select('span#z-min').text(dataObj.data.min.z);
+
+      d3.select('span#x-max').text(dataObj.data.max.x);
+      d3.select('span#y-max').text(dataObj.data.max.y);
+      d3.select('span#z-max').text(dataObj.data.max.z);
+
+      d3.select('span#x-diff').text(dataObj.data.max.x - dataObj.data.min.x);
+      d3.select('span#y-diff').text(dataObj.data.max.y - dataObj.data.min.y);
+      d3.select('span#z-diff').text(dataObj.data.max.z - dataObj.data.min.z);
+
+      d3.select('span#change').text(dataObj.data.changeDetected ? `Y (${dataObj.data.change.x}/${dataObj.data.change.y}/${dataObj.data.change.z})` : "N");
+
+      console.log(`${dataObj.data.max.x - dataObj.data.min.x} \t min: ${dataObj.data.min.x} \t max: ${dataObj.data.max.x} \t current: ${dataObj.data.current.x}`);
+    }
+
+    //console.log(ev.data);
+  }
+
+  d3.select("#threshold").on("input", function() {
+    d3.select("#thresholdValue").text(this.value);
+    ws.send(JSON.stringify({threshold: this.value}));
+  });
+</script>
+</body>
+</html>
